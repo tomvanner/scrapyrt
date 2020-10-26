@@ -21,8 +21,15 @@ SERVICE_ROOT = 'scrapyrt.resources.RealtimeApi'
 
 # Resources list
 RESOURCES = {
-    'crawl.json': 'scrapyrt.resources.CrawlResource',
+    # 'crawl.json': 'scrapyrt.resources.CrawlResource',
+    'crawl': 'scrapyrt.resources.CrawlPageResource',
+    'google': 'scrapyrt.resources.CrawlGoogleResource',
 }
+
+# Spider names
+GENERIC_SPIDER = 'genericspider'
+GOOGLE_SPIDER = 'googlespider'
+WHOLE_SITE_SPIDER = 'wholesitespider'
 
 CRAWL_MANAGER = 'scrapyrt.core.CrawlManager'
 

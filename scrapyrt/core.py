@@ -105,9 +105,6 @@ class CrawlManager(object):
         # callback will be added after instantiation of crawler object
         # because we need to know if spider has method available
         self.callback_name = request_kwargs.pop('callback', None) or 'parse'
-        # do the same for errback
-        self.errback_name = request_kwargs.pop('errback', None) or 'parse'
-
         if request_kwargs.get("url"):
             self.request = self.create_spider_request(deepcopy(request_kwargs))
         else:
@@ -148,7 +145,7 @@ class CrawlManager(object):
         """Handler of spider_idle signal.
 
         Schedule request for url given to api, with optional callback
-        and errback that can be passed as GET parameter.
+        that can be passed as GET parameter.
 
         spider_idle signal is used because we want to optionally enable
         start_requests for the spider and if request is scheduled in
@@ -160,10 +157,6 @@ class CrawlManager(object):
             callback = getattr(self.crawler.spider, self.callback_name)
             assert callable(callback), 'Invalid callback'
             self.request = self.request.replace(callback=callback)
-
-            errback = getattr(self.crawler.spider, self.errback_name)
-            assert callable(errback), 'Invalid errback'
-            self.request = self.request.replace(errback=errback)
             modify_request = getattr(
                 self.crawler.spider, "modify_realtime_request", None)
             if callable(modify_request):

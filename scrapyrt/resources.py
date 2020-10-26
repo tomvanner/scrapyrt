@@ -212,6 +212,13 @@ class CrawlResource(ServiceResource):
             max_requests = api_params['max_requests']
         except (KeyError, IndexError):
             max_requests = None
+        # Custom kwargs code
+        crawler_params = api_params.copy()
+        for api_param in ['max_requests', 'start_requests', 'spider_name', 'url']:
+            crawler_params.pop(api_param, None)
+        kwargs.update(crawler_params)
+        scrapy_request_args.pop('url')
+        # End custom kwargs code
         dfd = self.run_crawl(
             spider_name, scrapy_request_args, max_requests,
             start_requests=start_requests, *args, **kwargs)
@@ -221,6 +228,7 @@ class CrawlResource(ServiceResource):
 
     def run_crawl(self, spider_name, scrapy_request_args,
                   max_requests=None, start_requests=False, *args, **kwargs):
+                  
         crawl_manager_cls = load_object(settings.CRAWL_MANAGER)
         manager = crawl_manager_cls(spider_name, scrapy_request_args, max_requests, start_requests=start_requests)
         dfd = manager.crawl(*args, **kwargs)
@@ -239,3 +247,133 @@ class CrawlResource(ServiceResource):
         if errors:
             response["errors"] = errors
         return response
+
+
+class CrawlCustomResource(ServiceResource):
+
+    isLeaf = True
+    allowedMethods = ['POST']
+
+    def render_POST(self, request, **kwargs):
+        """
+        :param request:
+            body should contain JSON
+
+        Required keys in JSON posted:
+
+        :spider_name: string
+            name of spider to be scheduled.
+
+        :request: json object
+            request to be scheduled with spider.
+            Note: request must contain url for spider.
+            It may contain kwargs to scrapy request.
+
+        """
+        request_body = request.content.getvalue()
+        try:
+            api_params = demjson.decode(request_body)
+        except demjson.JSONDecodeError as e:
+            message = "Invalid JSON in POST body. {}"
+            message = message.format(e.pretty_description())
+            raise Error('400', message=message)
+
+        log.msg("{}".format(api_params))
+
+        spider_name = self.get_spider_name()
+        self.validate_options(api_params)
+        return self.prepare_crawl(api_params, **kwargs)
+
+    def validate_options(self, api_params):
+        raise Exception('validate_options must be implemented in child class.')
+
+    def get_spider_name(self):
+        raise Exception('get_spider_name must be implemented in child class.')
+
+    def get_required_argument(self, api_params, name, error_msg=None):
+        """Get required API key from dict-like object.
+
+        :param dict api_params:
+            dictionary with names and values of parameters supplied to API.
+        :param str name:
+            required key that must be found in api_params
+        :return: value of required param
+        :raises Error: Bad Request response
+
+        """
+        if error_msg is None:
+            error_msg = 'Missing required parameter: {}'.format(repr(name))
+        try:
+            value = api_params[name]
+        except KeyError:
+            raise Error('400', message=error_msg)
+        if not value:
+            raise Error('400', message=error_msg)
+        return value
+
+    def prepare_crawl(self, api_params, *args, **kwargs):
+        """Schedule given spider with CrawlManager.
+
+        :param dict api_params:
+            arguments needed to find spider and set proper api parameters
+            for crawl (max_requests for example)
+
+        :param dict scrapy_request_args:
+            should contain positional and keyword arguments for Scrapy
+            Request object that will be created
+        """
+        try:
+            max_requests = api_params['max_requests']
+        except (KeyError, IndexError):
+            max_requests = None
+
+        kwargs.update(api_params)
+
+        dfd = self.run_crawl(max_requests,
+            *args, **kwargs)
+        dfd.addCallback(
+            self.prepare_response, request_data=api_params, *args, **kwargs)
+        return dfd
+
+    def run_crawl(self,
+                  max_requests=None, start_requests=True, *args, **kwargs):
+        
+        crawl_manager_cls = load_object(settings.CRAWL_MANAGER)
+        spider_name = self.get_spider_name()
+        manager = crawl_manager_cls(spider_name, {}, max_requests, start_requests=start_requests)
+        dfd = manager.crawl(*args, **kwargs)
+        return dfd
+
+    def prepare_response(self, result, *args, **kwargs):
+        items = result.get("items")
+        response = {
+            "status": "ok",
+            "items": items,
+            "items_dropped": result.get("items_dropped", []),
+            "stats": result.get("stats"),
+            "spider_name": result.get("spider_name"),
+        }
+        errors = result.get("errors")
+        if errors:
+            response["errors"] = errors
+        return response
+
+class CrawlGoogleResource(CrawlCustomResource):
+    def validate_options(self, api_params):
+        query = api_params.get("query")
+        if not query:
+            raise Error('400',
+                        "'query' is required")
+
+    def get_spider_name(self):
+        return settings.GOOGLE_SPIDER
+
+class CrawlPageResource(CrawlCustomResource):
+    def validate_options(self, api_params):
+        url = api_params.get("url")
+        if not url:
+            raise Error('400',
+                        "'url' is required")
+
+    def get_spider_name(self):
+        return settings.GENERIC_SPIDER
